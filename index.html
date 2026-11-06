@@ -2,143 +2,120 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>SoFlow Direct Hex Switcher</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SoFlow Speed Switcher</title>
     <style>
-        * { 
-            box-sizing: border-box; 
-            margin: 0; 
-            padding: 0; 
-        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
-            background: #000; 
+            background: #0a0a0a; 
             height: 100vh; 
             display: flex; 
             flex-direction: column; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; 
-            -webkit-user-select: none;
-            user-select: none;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            color: #fff; 
+            justify-content: center; 
+            align-items: center; 
+            gap: 20px;
+            padding: 20px;
+        }
+        .container {
+            width: 100%;
+            max-width: 360px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
         }
         button { 
-            flex: 1; 
-            border: none; 
-            outline: none; 
-            font-size: 2.8rem; 
-            font-weight: 900; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center; 
-            gap: 8px; 
-            cursor: pointer; 
-            transition: opacity 0.15s ease;
-        }
-        button:active { 
-            opacity: 0.7; 
-        }
-        .sub { 
-            font-size: 1rem; 
-            font-weight: 600; 
-            opacity: 0.75; 
-            font-family: monospace;
-            letter-spacing: 1px;
-        }
-        #b22 { 
-            background: #1b3820; 
-            color: #34c759; 
-            border-bottom: 2px solid #111; 
-        }
-        #b27 { 
-            background: #3b1d1d; 
-            color: #ff453a; 
-        }
-        #status {
-            position: fixed; 
-            bottom: 16px; 
-            left: 50%; 
-            transform: translateX(-50%);
-            background: rgba(0,0,0,0.85); 
-            color: #8e8e93; 
-            font-size: 11px;
+            width: 100%; 
+            padding: 24px; 
+            font-size: 22px; 
             font-weight: 700; 
-            padding: 8px 16px; 
-            border-radius: 20px; 
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            pointer-events: none;
-            border: 1px solid #222;
+            border: none; 
+            border-radius: 16px; 
+            cursor: pointer; 
+            transition: transform 0.1s ease, opacity 0.2s ease;
+        }
+        button:active { transform: scale(0.98); opacity: 0.8; }
+        #btn22 { background: #2c2c2e; color: #34c759; border: 2px solid #34c759; }
+        #btn27 { background: #007aff; color: #fff; }
+        #status { 
+            font-size: 15px; 
+            color: #8e8e93; 
+            text-align: center; 
+            min-height: 20px;
+            font-weight: 500;
         }
     </style>
 </head>
 <body>
-    <button id="b22" onclick="sendHex('D707A90000dc8C')">
-        22 KM/H
-        <span class="sub">D707A90000dc8C</span>
-    </button>
-    
-    <button id="b27" onclick="sendHex('D707A900010eBF')">
-        27 KM/H
-        <span class="sub">D707A900010eBF</span>
-    </button>
-
-    <div id="status">Ready</div>
+    <div class="container">
+        <div id="status">Tap mode to connect & send payload</div>
+        <button id="btn22" onclick="sendHex('D707A90000dc8C')">22 KM/H Mode</button>
+        <button id="btn27" onclick="sendHex('D707A900010eBF')">27 KM/H Mode</button>
+    </div>
 
     <script>
-        let targetChar = null;
-        let bluetoothDevice = null;
+        let bluetoothDevice;
+        let writableCharacteristic;
 
-        function setStatus(msg) {
-            document.getElementById('status').innerText = msg;
+        function hexToBytes(hex) {
+            let bytes = [];
+            for (let c = 0; c < hex.length; c += 2) {
+                bytes.push(parseInt(hex.substr(c, 2), 16));
+            }
+            return new Uint8Array(bytes);
         }
 
-        async function sendHex(hexStr) {
+        async function sendHex(hexString) {
+            const status = document.getElementById('status');
             try {
-                if (!targetChar || !bluetoothDevice || !bluetoothDevice.gatt.connected) {
-                    setStatus('Scanning scooter...');
+                if (!writableCharacteristic || !bluetoothDevice.gatt.connected) {
+                    status.innerText = "Scanning for SoFlow...";
                     bluetoothDevice = await navigator.bluetooth.requestDevice({
                         acceptAllDevices: true,
-                        optionalServices: [] 
+                        optionalServices: [
+                            "0000ffe0-0000-1000-8000-00805f9b34fb",
+                            "6e400001-b5a3-f393-e0a9-e50e24dcca9e",
+                            "0000fe00-0000-1000-8000-00805f9b34fb"
+                        ]
                     });
-
-                    setStatus('Connecting GATT...');
+                    
+                    status.innerText = "Connecting GATT...";
                     const server = await bluetoothDevice.gatt.connect();
                     
-                    setStatus('Finding writable pipe...');
+                    status.innerText = "Locating writable characteristic...";
                     const services = await server.getPrimaryServices();
+                    writableCharacteristic = null;
                     
                     for (let service of services) {
-                        const chars = await service.getCharacteristics();
-                        for (let char of chars) {
-                            if (char.properties.write || char.properties.writeWithoutResponse) {
-                                targetChar = char;
+                        const characteristics = await service.getCharacteristics();
+                        for (let characteristic of characteristics) {
+                            if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+                                writableCharacteristic = characteristic;
                                 break;
                             }
                         }
-                        if (targetChar) break;
+                        if (writableCharacteristic) break;
                     }
-
-                    if (!targetChar) throw new Error("No writable characteristic found!");
                 }
 
-                setStatus('Sending hex...');
-                const cleanHex = hexStr.replace(/\s+/g, '');
-                const bytes = new Uint8Array(cleanHex.match(/.{1,2}/g).map(b => parseInt(b, 16)));
+                if (!writableCharacteristic) {
+                    throw new Error("No writable BLE characteristic found.");
+                }
+
+                status.innerText = "Transmitting hex payload...";
+                let byteArray = hexToBytes(hexString);
                 
-                const writeType = targetChar.properties.writeWithoutResponse ? 'writeWithoutResponse' : 'writeValueWithResponse';
-                if (writeType === 'writeWithoutResponse') {
-                    await targetChar.writeValueWithoutResponse(bytes);
+                if (writableCharacteristic.properties.write) {
+                    await writableCharacteristic.writeValueWithResponse(byteArray);
                 } else {
-                    await targetChar.writeValue(bytes);
+                    await writableCharacteristic.writeValueWithoutResponse(byteArray);
                 }
-
-                setStatus('Sent!');
-                setTimeout(() => setStatus('Connected'), 1500);
-
-            } catch (err) {
-                console.error(err);
-                setStatus('Error: ' + err.message);
-                targetChar = null;
-                bluetoothDevice = null;
+                
+                status.innerText = "SUCCESS: " + (hexString.includes("0000dc8C") ? "22 km/h" : "27 km/h") + " set!";
+            } catch (error) {
+                status.innerText = "Error: " + error.message;
+                writableCharacteristic = null;
             }
         }
     </script>
